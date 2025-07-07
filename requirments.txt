@@ -1,9 +1,0 @@
-Django
-gunicorn
-torch
-torchvision
-torchaudio
-opencv-python
-numpy
-pillow
-requests
