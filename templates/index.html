@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Traffic Camera</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #f3f4f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        video {
+            border-radius: 8px;
+            width: 100%;
+            height: auto;
+            max-height: 60vh;
+            margin-bottom: 10px;
+        }
+
+        #toggle-btn {
+            margin-bottom: 15px;
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        #toggle-btn:hover {
+            background-color: #2563eb;
+        }
+
+        .result {
+            font-size: 18px;
+            margin-top: 20px;
+            color: #10b981;
+        }
+
+        canvas {
+            display: none;
+        }
+
+        @media screen and (max-width: 480px) {
+            .container {
+                padding: 15px;
+            }
+
+            #toggle-btn {
+                font-size: 12px;
+                padding: 8px 16px;
+            }
+
+            .result {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Traffic Camera Device</h2>
+
+    <button id="toggle-btn">Switch Camera</button>
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas" width="224" height="224"></canvas>
+
+    <div class="result" id="prediction-result">Waiting for prediction...</div>
+</div>
+
+<script>
+    let video = document.getElementById('video');
+    let canvas = document.getElementById('canvas');
+    let resultDiv = document.getElementById('prediction-result');
+    let toggleBtn = document.getElementById('toggle-btn');
+    let currentFacing = 'environment'; // 'user' for front camera
+
+    async function startCamera(facingMode = 'environment') {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { exact: facingMode } }
+            });
+            video.srcObject = stream;
+        } catch (error) {
+            console.error("Camera error:", error);
+            resultDiv.innerText = "Failed to access camera";
+        }
+    }
+
+    function stopCamera() {
+        let stream = video.srcObject;
+        if (stream) {
+            let tracks = stream.getTracks();
+            tracks.forEach(track => track.stop());
+        }
+    }
+
+    toggleBtn.onclick = () => {
+        currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+        stopCamera();
+        startCamera(currentFacing);
+    };
+
+    function captureAndPredict() {
+        navigator.geolocation.getCurrentPosition(pos => {
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(blob => {
+                const formData = new FormData();
+                formData.append('image', blob, 'frame.jpg');
+                formData.append('lat', pos.coords.latitude);
+                formData.append('lon', pos.coords.longitude);
+
+                fetch('/predict/', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.result) {
+                        resultDiv.innerHTML = `Prediction: <strong>${data.result.toUpperCase()}</strong>`;
+                    } else {
+                        resultDiv.innerText = "Prediction failed";
+                    }
+                })
+                .catch(err => {
+                    console.error('Fetch error:', err);
+                    resultDiv.innerText = "Error during prediction";
+                });
+            }, 'image/jpeg');
+        }, err => {
+            console.error("GPS error:", err);
+            resultDiv.innerText = "GPS location not available";
+        });
+    }
+
+    // Start camera and start prediction loop
+    startCamera(currentFacing);
+    setInterval(captureAndPredict, 2000); // Predict every 2 seconds
+</script>
+</body>
+</html>
